@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.m5_enrichment import (
     summarize_chunk, generate_hypothesis_questions,
     contextual_prepend, extract_metadata, enrich_chunks, EnrichedChunk,
+    _parse_json_object,
 )
 
 SAMPLE = "Nhân viên chính thức được nghỉ phép năm 12 ngày làm việc mỗi năm."
@@ -67,3 +68,13 @@ def test_enrich_preserves_original():
     result = enrich_chunks(CHUNKS, methods=["contextual"])
     if result:
         assert result[0].original_text == SAMPLE
+
+
+def test_parse_json_ignores_extra_content():
+    result = _parse_json_object('{"summary": "ok"}\n{"extra": true}')
+    assert result == {"summary": "ok"}
+
+
+def test_parse_json_accepts_markdown_fence():
+    result = _parse_json_object('```json\n{"summary": "ok"}\n```')
+    assert result == {"summary": "ok"}

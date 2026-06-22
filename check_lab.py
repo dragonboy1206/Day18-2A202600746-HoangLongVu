@@ -9,6 +9,12 @@ import json
 import os
 import sys
 import subprocess
+import re
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def check_file(path: str, required: bool = True) -> bool:
@@ -57,18 +63,16 @@ def run_tests() -> tuple[int, int]:
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-v", "--tb=no", "-q"],
             capture_output=True, text=True, timeout=120,
+            env={**os.environ, "DISABLE_LLM": "1"},
         )
-        lines = result.stdout.strip().split("\n")
-        summary = lines[-1] if lines else ""
-        # Parse "X passed, Y failed" or "X passed"
-        passed = total = 0
-        for part in summary.split(","):
-            part = part.strip()
-            if "passed" in part:
-                passed = int(part.split()[0])
-                total += passed
-            if "failed" in part:
-                total += int(part.split()[0])
+        output = f"{result.stdout}\n{result.stderr}"
+        passed_match = re.search(r"(\d+)\s+passed", output)
+        failed_match = re.search(r"(\d+)\s+failed", output)
+        error_match = re.search(r"(\d+)\s+errors?", output)
+        passed = int(passed_match.group(1)) if passed_match else 0
+        failed = int(failed_match.group(1)) if failed_match else 0
+        errors = int(error_match.group(1)) if error_match else 0
+        total = passed + failed + errors
         return passed, total
     except Exception as e:
         print(f"  ⚠️  pytest error: {e}")

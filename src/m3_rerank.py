@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Module 3: Reranking — Cross-encoder top-20 → top-3 + latency benchmark."""
 
-import os, sys, time
+import os, sys, time, re
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,28 +25,41 @@ class CrossEncoderReranker:
 
     def _load_model(self):
         if self._model is None:
-            # TODO: Load cross-encoder model
-            # from sentence_transformers import CrossEncoder
-            # self._model = CrossEncoder(self.model_name)
-            #
-            # ⚠️ LƯU Ý: Dùng sentence_transformers.CrossEncoder, KHÔNG dùng FlagEmbedding.
-            # FlagReranker crash với transformers>=5.0 (XLMRobertaTokenizer lỗi).
-            pass
+            try:
+                from sentence_transformers import CrossEncoder
+                self._model = CrossEncoder(self.model_name, local_files_only=True)
+            except Exception:
+                self._model = False
         return self._model
 
     def rerank(self, query: str, documents: list[dict], top_k: int = RERANK_TOP_K) -> list[RerankResult]:
         """Rerank documents: top-20 → top-k."""
-        # TODO: Implement reranking
-        # 1. if not documents: return []
-        # 2. model = self._load_model()
-        # 3. pairs = [(query, doc["text"]) for doc in documents]
-        # 4. scores = model.predict(pairs)
-        # 5. if isinstance(scores, (int, float)): scores = [scores]
-        # 6. scored = sorted(zip(scores, documents), key=lambda x: x[0], reverse=True)
-        # 7. Return [RerankResult(text=..., original_score=doc.get("score", 0.0),
-        #            rerank_score=float(score), metadata=..., rank=i)
-        #            for i, (score, doc) in enumerate(scored[:top_k])]
-        return []
+        if not documents:
+            return []
+        model = self._load_model()
+        if model:
+            scores = model.predict([(query, doc["text"]) for doc in documents])
+            if isinstance(scores, (int, float)):
+                scores = [scores]
+        else:
+            query_tokens = set(re.findall(r"\w+", query.lower(), flags=re.UNICODE))
+            scores = []
+            for doc in documents:
+                doc_tokens = set(re.findall(r"\w+", doc["text"].lower(), flags=re.UNICODE))
+                lexical = len(query_tokens & doc_tokens) / max(len(query_tokens), 1)
+                scores.append(lexical + 0.01 * float(doc.get("score", 0.0)))
+
+        scored = sorted(zip(scores, documents), key=lambda item: float(item[0]), reverse=True)
+        return [
+            RerankResult(
+                text=doc["text"],
+                original_score=float(doc.get("score", 0.0)),
+                rerank_score=float(score),
+                metadata=doc.get("metadata", {}),
+                rank=rank,
+            )
+            for rank, (score, doc) in enumerate(scored[:top_k], start=1)
+        ]
 
 
 class FlashrankReranker:
